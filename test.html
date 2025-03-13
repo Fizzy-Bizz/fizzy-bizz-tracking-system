@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Soda Shop Sales Analyzer</title>
+    <link rel="stylesheet" href="test.css">
+</head>
+<body>
+    <h1>Soda Shop Sales Analyzer</h1>
+    
+    <div class="instructions">
+        <h2>How to Use This Tool</h2>
+        <p>This application analyzes soda shop sales data from CSV files to help you track drink sales, flavor popularity, and estimate syrup usage.</p>
+        <ol>
+            <li>Upload a CSV file containing your sales data (from your POS system)</li>
+            <li>Click the "Analyze Sales Data" button to process the file</li>
+            <li>View the analysis results, including:
+                <ul>
+                    <li>Total drink sales</li>
+                    <li>Sales breakdown by base soda type</li>
+                    <li>Sales breakdown by drink size</li>
+                    <li>Most popular flavors and recipes</li>
+                    <li>Estimated syrup usage for ordering inventory</li>
+                </ul>
+            </li>
+        </ol>
+    </div>
+    
+    <div class="upload-section">
+        <h2>Upload Your Sales Data</h2>
+        <input type="file" id="fileInput" accept=".csv">
+        <button onclick="processFile()">Analyze Sales Data</button>
+    </div>
+    
+    <div id="tableContainer">
+        <!-- Analysis results will be displayed here -->
+    </div>
+
+    <!-- Link to the external JavaScript file -->
+    <script src="test.js"></script>
+</body>
+</html>
