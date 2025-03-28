@@ -9,8 +9,8 @@ function processFile() {
             const csvData = event.target.result;
             const { headers, rows } = parseCSVData(csvData);
             
-            // Display the raw CSV data
-            displayCSVTable(headers, rows);
+            // Clear previous results
+            document.getElementById('tableContainer').innerHTML = '';
             
             // Analyze the sales data
             analyzeSalesData(headers, rows);
@@ -69,54 +69,18 @@ function parseCSVLine(line) {
     return result;
 }
 
-// Updated function to display CSV data
-function displayCSVTable(headers, rows) {
-    const tableContainer = document.getElementById('tableContainer');
-    
-    // Create a title for the raw data table
-    const rawDataTitle = document.createElement('h2');
-    rawDataTitle.textContent = 'Raw Sales Data';
-    tableContainer.innerHTML = '';
-    tableContainer.appendChild(rawDataTitle);
-    
-    const table = document.createElement('table');
-
-    // Create table header
-    const thead = document.createElement('thead');
-    const headerRow = document.createElement('tr');
-    headers.forEach(header => {
-        const th = document.createElement('th');
-        th.textContent = header;
-        headerRow.appendChild(th);
-    });
-    thead.appendChild(headerRow);
-    table.appendChild(thead);
-
-    // Create table body
-    const tbody = document.createElement('tbody');
-    rows.forEach(row => {
-        const tr = document.createElement('tr');
-        row.forEach(cell => {
-            const td = document.createElement('td');
-            td.textContent = cell;
-            tr.appendChild(td);
-        });
-        tbody.appendChild(tr);
-    });
-    table.appendChild(tbody);
-
-    // Add the table to the container
-    tableContainer.appendChild(table);
-}
-
 // New function to analyze sales data
 function analyzeSalesData(headers, rows) {
     // Determine column indices based on your CSV format
+    const dateIndex = headers.findIndex(header => header === 'Date');
     const categoryIndex = headers.findIndex(header => header === 'Category');
     const itemIndex = headers.findIndex(header => header === 'Item');
     const qtyIndex = headers.findIndex(header => header === 'Qty');
     const pricePointIndex = headers.findIndex(header => header === 'Price Point Name');
     const modifiersIndex = headers.findIndex(header => header === 'Modifiers Applied');
+    
+    // Calculate date range from the data
+    const dateRange = calculateDateRange(rows, dateIndex);
     
     // Filter out non-drink items (like cookies, straw toppers, etc.)
     const drinkRows = rows.filter(row => {
@@ -243,15 +207,16 @@ function analyzeSalesData(headers, rows) {
     
     // Calculate syrup usage
     // Assumptions:
-    // - Small: 2 oz of syrup
-    // - Medium: 3 oz of syrup
-    // - Large: 4 oz of syrup
+    // - Small: 2.666666667 oz of syrup
+    // - Medium: 4 oz of syrup
+    // - Large: 5.333333333 oz of syrup
+    // - XLarge: 6.666666667 oz of syrup
     // - Each flavor adds 0.5 oz of syrup
     
     const syrupRatios = {
-        'Small': 2,
-        'Medium': 3,
-        'Large': 4
+        'Small': 2.666666667,
+        'Medium': 4,
+        'Large': 5.333333333
     };
     
     const syrupUsage = {
@@ -310,7 +275,8 @@ function analyzeSalesData(headers, rows) {
         sizeCounts, 
         flavorCounts, 
         syrupUsage, 
-        flavorSyrupUsage
+        flavorSyrupUsage,
+        dateRange
     );
 }
 
@@ -376,7 +342,8 @@ function displayAnalysisResults(
     sizeCounts, 
     flavorCounts, 
     syrupUsage, 
-    flavorSyrupUsage
+    flavorSyrupUsage,
+    dateRange
 ) {
     const tableContainer = document.getElementById('tableContainer');
     
@@ -388,6 +355,10 @@ function displayAnalysisResults(
     const totalTitle = document.createElement('h2');
     totalTitle.textContent = 'Sales Summary';
     summaryDiv.appendChild(totalTitle);
+    
+    const datePara = document.createElement('p');
+    datePara.textContent = `Analysis Period: ${dateRange.startDate} to ${dateRange.endDate} (${dateRange.days} days)`;
+    summaryDiv.appendChild(datePara);
     
     const totalPara = document.createElement('p');
     totalPara.textContent = `Total Drinks Sold: ${totalDrinks}`;
@@ -470,6 +441,142 @@ function displayAnalysisResults(
     );
     tableContainer.appendChild(baseSyrupTable);
     
+    // Create note about forecast
+    const forecastNote = document.createElement('div');
+    forecastNote.className = 'forecast-note';
+    forecastNote.innerHTML = `
+        <p><strong>Note:</strong> The forecast calculations are based on ${dateRange.days} days of sales data 
+        from ${dateRange.startDate} to ${dateRange.endDate}. The "Current Level" shows estimated remaining syrup 
+        as of ${dateRange.endDate} (the last day in your data), based on last replacement date and usage rate. 
+        If no replacement date is specified, the syrup is assumed to have been full on ${dateRange.startDate} (the first day in your data).</p>
+    `;
+    tableContainer.appendChild(forecastNote);
+    
+    // Create syrup replacement forecast
+    const forecastTitle = document.createElement('h2');
+    forecastTitle.textContent = 'Syrup Replacement Forecast';
+    tableContainer.appendChild(forecastTitle);
+    
+    // Calculate daily usage rates and forecast days until replacement
+    const forecastData = Object.entries(syrupUsage)
+        .filter(([_, amount]) => amount > 0) // Only show sodas that were used
+        .map(([soda, ounces]) => {
+            // Get container size from input or use default (5 gallons)
+            const containerSizeInputId = getSodaContainerInputId(soda);
+            const containerSizeInput = document.getElementById(containerSizeInputId);
+            const containerSizeGallons = containerSizeInput ? 
+                (parseFloat(containerSizeInput.value) || 5) : 5;
+            
+            // Convert to ounces
+            const containerSizeOunces = containerSizeGallons * 128;
+            
+            // Calculate daily usage
+            const dailyUsageOunces = ounces / dateRange.days;
+            
+            // Get last replacement date
+            const dateInputId = getSodaDateInputId(soda);
+            const dateInput = document.getElementById(dateInputId);
+            
+            let lastReplacementDate = null;
+            let currentLevelPercent = 100;
+            let currentLevelOunces = containerSizeOunces;
+            
+            // Parse the end date from dateRange to use as reference point
+            const endDateParts = dateRange.endDate.split('/');
+            const endDate = new Date(
+                parseInt(endDateParts[2]), // Year
+                parseInt(endDateParts[0]) - 1, // Month (0-based)
+                parseInt(endDateParts[1]) // Day
+            );
+            
+            if (dateInput && dateInput.value) {
+                // If user specified a replacement date, use that
+                lastReplacementDate = new Date(dateInput.value);
+            } else {
+                // If no replacement date specified, use the first date in the CSV
+                const startDateParts = dateRange.startDate.split('/');
+                lastReplacementDate = new Date(
+                    parseInt(startDateParts[2]), // Year
+                    parseInt(startDateParts[0]) - 1, // Month (0-based)
+                    parseInt(startDateParts[1]) // Day
+                );
+            }
+            
+            // Calculate level as of the last day in the CSV
+            const diffTime = Math.abs(endDate - lastReplacementDate);
+            const daysSinceReplacement = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            
+            const usedSinceFill = dailyUsageOunces * daysSinceReplacement;
+            currentLevelOunces = Math.max(0, containerSizeOunces - usedSinceFill);
+            currentLevelPercent = Math.max(0, (currentLevelOunces / containerSizeOunces) * 100);
+            
+            // Calculate days until replacement
+            const daysUntilReplacement = currentLevelOunces / dailyUsageOunces;
+            
+            // Calculate replacement date based on the last day in the CSV
+            const replacementDate = new Date(endDate);
+            replacementDate.setDate(endDate.getDate() + Math.floor(daysUntilReplacement));
+            
+            // Determine status class based on days remaining
+            const daysRemaining = Math.floor(daysUntilReplacement);
+            let statusClass = 'forecast-status-ok';
+            
+            if (daysRemaining <= 7) {
+                statusClass = 'forecast-status-urgent';
+            } else if (daysRemaining <= 14) {
+                statusClass = 'forecast-status-warning';
+            }
+            
+            // Create status cell with appropriate class
+            const daysRemainingCell = document.createElement('td');
+            daysRemainingCell.className = statusClass;
+            daysRemainingCell.textContent = `${daysRemaining} days`;
+            
+            // Create current level cell with appropriate styling
+            const currentLevelCell = document.createElement('td');
+            
+            // Create progress bar for current level
+            const progressBarOuter = document.createElement('div');
+            progressBarOuter.className = 'progress-bar-outer';
+            
+            const progressBarInner = document.createElement('div');
+            progressBarInner.className = 'progress-bar-inner';
+            progressBarInner.style.width = `${currentLevelPercent}%`;
+            
+            // Color based on level
+            if (currentLevelPercent <= 20) {
+                progressBarInner.classList.add('level-critical');
+            } else if (currentLevelPercent <= 40) {
+                progressBarInner.classList.add('level-low');
+            } else {
+                progressBarInner.classList.add('level-ok');
+            }
+            
+            progressBarOuter.appendChild(progressBarInner);
+            
+            const progressText = document.createElement('span');
+            progressText.textContent = `${currentLevelPercent.toFixed(1)}% (${(currentLevelOunces / 128).toFixed(2)} gal)`;
+            
+            currentLevelCell.appendChild(progressBarOuter);
+            currentLevelCell.appendChild(progressText);
+            
+            return [
+                soda,
+                `${dailyUsageOunces.toFixed(1)} oz/day`,
+                `${containerSizeGallons.toFixed(1)} gallons`,
+                lastReplacementDate ? formatDate(lastReplacementDate) : dateRange.startDate,
+                currentLevelCell,
+                daysRemainingCell,
+                formatDate(replacementDate)
+            ];
+        });
+    
+    const forecastTable = createSummaryTable(
+        ['Base Soda', 'Daily Usage', 'Container Size', 'Last Replaced', 'Current Level', 'Days Until Empty', 'Replacement Date'],
+        forecastData
+    );
+    tableContainer.appendChild(forecastTable);
+    
     // Create flavor syrup usage table
     const flavorSyrupTitle = document.createElement('h2');
     flavorSyrupTitle.textContent = 'Flavor Syrup Usage';
@@ -514,6 +621,98 @@ function displayAnalysisResults(
     tableContainer.appendChild(totalSyrupDiv);
 }
 
+// Function to calculate date range from CSV data
+function calculateDateRange(rows, dateIndex) {
+    // Extract dates
+    const dates = rows.map(row => {
+        const dateStr = row[dateIndex];
+        return parseDate(dateStr);
+    }).filter(date => date !== null);
+    
+    // Find min and max dates
+    const sortedDates = [...dates].sort((a, b) => a - b);
+    const startDate = sortedDates[0];
+    const endDate = sortedDates[sortedDates.length - 1];
+    
+    // Calculate number of days
+    const diffTime = Math.abs(endDate - startDate);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1; // +1 to include both start and end days
+    
+    return {
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate),
+        days: diffDays
+    };
+}
+
+// Parse date string (handles multiple formats)
+function parseDate(dateStr) {
+    if (!dateStr) return null;
+    
+    // Try different date formats
+    // MM/DD/YYYY format
+    const dateParts = dateStr.split('/');
+    if (dateParts.length === 3) {
+        const month = parseInt(dateParts[0], 10) - 1; // JS months are 0-based
+        const day = parseInt(dateParts[1], 10);
+        const year = parseInt(dateParts[2], 10);
+        return new Date(year, month, day);
+    }
+    
+    // Try ISO format (YYYY-MM-DD)
+    const isoDate = new Date(dateStr);
+    if (!isNaN(isoDate.getTime())) {
+        return isoDate;
+    }
+    
+    return null;
+}
+
+// Function to get the corresponding input id for a soda type
+function getSodaContainerInputId(sodaType) {
+    const mapping = {
+        'Coke': 'cokeSize',
+        'Diet Coke': 'dietCokeSize',
+        'Coke Zero': 'cokeZeroSize',
+        'Sprite': 'spriteSize',
+        'Sprite Zero': 'spriteZeroSize',
+        'Dr. Pepper': 'drPepperSize',
+        'Diet Dr. Pepper': 'dietDrPepperSize',
+        'Root Beer': 'rootBeerSize',
+        'IBC Root Beer': 'rootBeerSize',
+        'A&W Zero': 'rootBeerSize'
+    };
+    
+    return mapping[sodaType] || null;
+}
+
+// Function to get the corresponding date input id for a soda type
+function getSodaDateInputId(sodaType) {
+    const mapping = {
+        'Coke': 'cokeDate',
+        'Diet Coke': 'dietCokeDate',
+        'Coke Zero': 'cokeZeroDate',
+        'Sprite': 'spriteDate',
+        'Sprite Zero': 'spriteZeroDate',
+        'Dr. Pepper': 'drPepperDate',
+        'Diet Dr. Pepper': 'dietDrPepperDate',
+        'Root Beer': 'rootBeerDate',
+        'IBC Root Beer': 'rootBeerDate',
+        'A&W Zero': 'rootBeerDate'
+    };
+    
+    return mapping[sodaType] || null;
+}
+
+// Function to format date as MM/DD/YYYY
+function formatDate(date) {
+    const month = date.getMonth() + 1; // getMonth() returns 0-11
+    const day = date.getDate();
+    const year = date.getFullYear();
+    
+    return `${month}/${day}/${year}`;
+}
+
 // Helper function to create summary tables
 function createSummaryTable(headers, rows) {
     const table = document.createElement('table');
@@ -534,9 +733,15 @@ function createSummaryTable(headers, rows) {
     rows.forEach(row => {
         const tr = document.createElement('tr');
         row.forEach(cell => {
-            const td = document.createElement('td');
-            td.textContent = cell;
-            tr.appendChild(td);
+            // If cell is a DOM element, append it directly
+            if (cell instanceof HTMLElement) {
+                tr.appendChild(cell);
+            } else {
+                // Otherwise create a text cell
+                const td = document.createElement('td');
+                td.textContent = cell;
+                tr.appendChild(td);
+            }
         });
         tbody.appendChild(tr);
     });
